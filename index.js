@@ -103,4 +103,18 @@ bot.onText(/\/addfood (.+)/, (msg, match) => {
   bot.sendMessage(msg.chat.id, `Added new food option: ${newFood}`);
 });
 
+const express = require("express");
+const app = express();
+
+// Render sets PORT as an environment variable or you can use a default
+const PORT = process.env.PORT || 3000;
+
+app.get("/", (req, res) => {
+  res.send("Bot is running!");
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is listening on port ${PORT}`);
+});
+
 console.log("Bot is running...");
