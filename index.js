@@ -8,6 +8,8 @@ const TelegramBot = require("node-telegram-bot-api");
 const app = express();
 app.use(bodyParser.json());
 
+// hello world
+
 // === Environment Variables ===
 // Make sure to set these on Render.com (or in a local .env file)
 // TELEGRAM_BOT_TOKEN: Your Telegram bot token (provided by BotFather)
