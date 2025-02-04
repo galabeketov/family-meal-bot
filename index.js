@@ -1,124 +1,165 @@
-const TelegramBot = require("node-telegram-bot-api");
-const cron = require("node-cron");
-const axios = require("axios");
-
-// Configuration
-const TOKEN = "7815602689:AAHLWqKcP9aPjXZlCIokDiAO269fZLmX87g";
-const DEEPSEEK_API_KEY = "WbafI5RbOa6Wa9gpL9lpSgGY7QzcLvty";
-const ADMIN_ID = "835260592";
-const FOOD_OPTIONS = [
-  "Beshbarmak (Boiled meat with noodles)",
-  "Kazy-Karta (Horse sausage)",
-  "Kuyrdak (Fried liver, heart, and kidney)",
-  "Baursak (Fried dough)",
-  "Shashlik (Grilled meat skewers)",
-  "Manti (Steamed dumplings)",
-];
-
-const bot = new TelegramBot(TOKEN, { polling: true });
-let votes = new Map();
-
-// Generate question using DeepSeek AI
-async function generateQuestion() {
-  try {
-    const response = await axios.post(
-      "https://api.deepseek.com/v1/chat/completions",
-      {
-        messages: [
-          {
-            role: "user",
-            content:
-              "Generate a fun question to ask about food preferences for dinner, 1 sentence only",
-          },
-        ],
-        model: "deepseek-chat",
-      },
-      {
-        headers: {
-          Authorization: `Bearer ${DEEPSEEK_API_KEY}`,
-          "Content-Type": "application/json",
-        },
-      }
-    );
-    return response.data.choices[0].message.content;
-  } catch (error) {
-    return "What would you like to eat tonight?";
-  }
-}
-
-// Daily voting scheduler
-cron.schedule("0 11 * * *", async () => {
-  // Runs every day at 11 AM
-  const chatId = YOUR_GROUP_ID; // Replace with actual group ID
-  const question = await generateQuestion();
-
-  const options = {
-    reply_markup: JSON.stringify({
-      inline_keyboard: FOOD_OPTIONS.map((food) => [
-        { text: food, callback_data: food },
-      ]),
-    }),
-  };
-
-  const mentionAll = FOOD_OPTIONS.map((_, index) => `@user${index + 1}`).join(
-    " "
-  ); // Replace with actual usernames
-  bot.sendMessage(chatId, `${mentionAll}\n${question}`, options);
-});
-
-// Handle votes
-bot.on("callback_query", (query) => {
-  const userId = query.from.id;
-  const foodChoice = query.data;
-
-  votes.set(userId, foodChoice);
-  bot.answerCallbackQuery(query.id, { text: `Voted for ${foodChoice}!` });
-});
-
-// Show results after 1 hour
-cron.schedule("0 12 * * *", () => {
-  // Runs at 12 PM
-  const chatId = YOUR_GROUP_ID;
-
-  const results = {};
-  votes.forEach((value) => {
-    results[value] = (results[value] || 0) + 1;
-  });
-
-  let resultText = "Tonight's Dinner Results:\n";
-  Object.entries(results).forEach(([food, count]) => {
-    resultText += `\n${food}: ${count} votes`;
-  });
-
-  bot.sendMessage(chatId, resultText);
-  votes.clear();
-});
-
-// Admin commands
-bot.onText(/\/addfood (.+)/, (msg, match) => {
-  if (msg.from.id !== ADMIN_ID) return;
-
-  const newFood = match[1];
-  FOOD_OPTIONS.push(newFood);
-  bot.sendMessage(msg.chat.id, `Added new food option: ${newFood}`);
-});
+// index.js
+require("dotenv").config(); // Optional: if you want to load variables from a .env file
 
 const express = require("express");
+const bodyParser = require("body-parser");
+const TelegramBot = require("node-telegram-bot-api");
+
 const app = express();
+app.use(bodyParser.json());
 
-// Render sets PORT as an environment variable or you can use a default
-const PORT = process.env.PORT || 3000;
+// === Environment Variables ===
+// Make sure to set these on Render.com (or in a local .env file)
+// TELEGRAM_BOT_TOKEN: Your Telegram bot token (provided by BotFather)
+// ADMIN_ID: Telegram user id of the admin (as a string or number)
+// WEBHOOK_URL: Your public URL for the webhook (e.g. https://your-app.onrender.com)
+// PORT: The port number Render assigns (usually provided in process.env.PORT)
+const token = process.env.TELEGRAM_BOT_TOKEN;
+const adminId = process.env.ADMIN_ID;
+const webhookUrl = process.env.WEBHOOK_URL;
+const port = process.env.PORT || 3000;
 
+if (!token) {
+  console.error("Error: TELEGRAM_BOT_TOKEN is not set.");
+  process.exit(1);
+}
+if (!webhookUrl) {
+  console.error("Error: WEBHOOK_URL is not set.");
+  process.exit(1);
+}
+if (!adminId) {
+  console.error("Error: ADMIN_ID is not set.");
+  process.exit(1);
+}
+
+// === Initialize the Telegram Bot in Webhook Mode ===
+const bot = new TelegramBot(token, { webHook: { port: port } });
+// Set Telegram to use the following URL for sending updates to your bot.
+bot
+  .setWebHook(`${webhookUrl}/bot${token}`)
+  .then(() => {
+    console.log("Webhook set successfully!");
+  })
+  .catch((err) => {
+    console.error("Error setting webhook:", err);
+  });
+
+// === Define a list of food suggestions for lunch and dinner ===
+const foods = {
+  lunch: [
+    "Sandwich",
+    "Salad",
+    "Pasta",
+    "Burger",
+    "Sushi",
+    "Soup",
+    // Add more lunch items as needed
+  ],
+  dinner: [
+    "Steak",
+    "Pizza",
+    "Grilled Chicken",
+    "Tacos",
+    "Seafood",
+    "Risotto",
+    // Add more dinner items as needed
+  ],
+};
+
+// === Express Route for Webhook Updates ===
+// Telegram will send POST requests to this URL.
+app.post(`/bot${token}`, (req, res) => {
+  // Let the Telegram bot library process the update.
+  bot.processUpdate(req.body);
+  res.sendStatus(200);
+});
+
+// === A simple health check route ===
 app.get("/", (req, res) => {
-  res.send("Bot is running!");
+  res.send("Telegram Food Bot is running!");
 });
 
-app.listen(PORT, () => {
-  console.log(`Server is listening on port ${PORT}`);
+// === Telegram Bot Command and Callback Handling ===
+
+// Listen for the "/what_food" command.
+bot.onText(/\/what_food/, (msg) => {
+  // For security, only process this command if the sender is the admin.
+  if (msg.from.id.toString() !== adminId.toString()) {
+    console.log(
+      `Unauthorized user (${msg.from.id}) attempted /what_food command.`
+    );
+    return;
+  }
+
+  // Create an inline keyboard with options for lunch or dinner.
+  const opts = {
+    reply_markup: {
+      inline_keyboard: [
+        [
+          { text: "Lunch", callback_data: "meal_lunch" },
+          { text: "Dinner", callback_data: "meal_dinner" },
+        ],
+      ],
+    },
+  };
+
+  bot.sendMessage(
+    msg.chat.id,
+    "Hi Admin! Choose the meal for which you want food suggestions:",
+    opts
+  );
 });
 
-bot.on("message", (msg) => {
-  console.log(msg);
+// Handle callback queries from inline buttons.
+bot.on("callback_query", (callbackQuery) => {
+  const data = callbackQuery.data;
+  const message = callbackQuery.message;
+
+  // If the callback data is for choosing a meal:
+  if (data === "meal_lunch" || data === "meal_dinner") {
+    // Extract the meal type from the callback data.
+    const mealType = data.split("_")[1]; // "lunch" or "dinner"
+    const suggestions = foods[mealType];
+
+    // Build inline keyboard buttons for each suggestion.
+    // (Each button callback_data includes the meal type and food name.)
+    const buttons = suggestions.map((food) => {
+      return [{ text: food, callback_data: `select_${mealType}_${food}` }];
+    });
+
+    // Send the list of suggestions.
+    const opts = {
+      reply_markup: {
+        inline_keyboard: buttons,
+      },
+    };
+    bot.sendMessage(
+      message.chat.id,
+      `Here are some ${mealType} suggestions:`,
+      opts
+    );
+
+    // If the callback data is for selecting a specific food:
+  } else if (data.startsWith("select_")) {
+    // Data format: "select_mealType_foodName"
+    const parts = data.split("_");
+    // parts[0] is "select", parts[1] is meal type, parts[2...] joined form the food name.
+    const mealType = parts[1];
+    const foodName = parts.slice(2).join("_");
+
+    bot.sendMessage(
+      message.chat.id,
+      `Great choice! Enjoy your ${mealType}: ${foodName}.`
+    );
+  }
+
+  // Answer the callback query to remove the "waiting" animation.
+  bot
+    .answerCallbackQuery(callbackQuery.id)
+    .catch((err) => console.error("Error answering callback query:", err));
 });
 
-console.log("Bot is running...");
+// === Start the Express Server ===
+app.listen(port, () => {
+  console.log(`Express server is listening on port ${port}`);
+});
