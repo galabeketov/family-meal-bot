@@ -117,4 +117,8 @@ app.listen(PORT, () => {
   console.log(`Server is listening on port ${PORT}`);
 });
 
+bot.on("message", (msg) => {
+  console.log(msg);
+});
+
 console.log("Bot is running...");
